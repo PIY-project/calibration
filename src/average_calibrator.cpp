@@ -211,6 +211,11 @@ bool AverageCalibrator::calibrate( std_srvs::Empty::Request &request, std_srvs::
     transform_.setOrigin( tf::Vector3( tx,ty,tz) );
 	q_avg.normalize();
     transform_.setRotation( tf::Quaternion(q_avg.x(), q_avg.y(), q_avg.z(), q_avg.w()));
+
+
+    Eigen::Matrix3d temp_R(q_avg);
+
+
     std::string path = ros::package::getPath("calibration");
     std::string file = path + "/config/" + calibration_name_ + ".yaml";
     //std::cout << file.c_str() << std::endl;
@@ -228,6 +233,11 @@ bool AverageCalibrator::calibrate( std_srvs::Empty::Request &request, std_srvs::
                             transform_.getRotation().getY() << ", " << 
                             transform_.getRotation().getZ() << ", " << 
                             transform_.getRotation().getW() << "]" << std::endl;
+      f << "T: [" << std::to_string(temp_R(0,0)) << ", " << std::to_string(temp_R(0,1)) << ", " << std::to_string(temp_R(0,2)) << ", " << std::to_string(tx) << ", "
+                  << std::to_string(temp_R(1,0)) << ", " << std::to_string(temp_R(1,1)) << ", " << std::to_string(temp_R(1,2)) << ", " << std::to_string(ty) << ", "
+                  << std::to_string(temp_R(2,0)) << ", " << std::to_string(temp_R(2,1)) << ", " << std::to_string(temp_R(2,2)) << ", " << std::to_string(tz) << ", "
+                  << std::to_string(0.0) << ", " << std::to_string(0.0) << ", " << std::to_string(0.0) << ", " << std::to_string(1.0) << "]" << std::endl;
+
       f << "frame_id: " << frame_id_.c_str() << std::endl;
       f << "child_frame_id: " << child_frame_id_.c_str() << std::endl;
       f.close();
