@@ -4,7 +4,7 @@
     <!-- 455 -->
     <!-- <arg name="serial_no_camera_name"        default="105322251715"/>     -->
       <!-- 415 -->
-  	<arg name="serial_no_camera_name"    		default="839212060194"/>
+  	<arg name="serial_no_camera_name"    		default="821212062772"/>
     
   
 
@@ -20,8 +20,8 @@
   	<group ns="setup1">
       <param name="tf_prefix" value="setup1"></param>
     	<include file="$(find calibration)/launch/gofa_SH_industry_calibration.launch">
-        <!-- <arg name="robot_ip"         value="192.168.131.200"/> -->
-    		<arg name="robot_ip"         value="192.168.131.100"/>
+        <arg name="robot_ip"         value="192.168.131.200"/>
+    		<!-- <arg name="robot_ip"         value="192.168.131.100"/> -->
    		</include>
   	</group>
 
