@@ -21,7 +21,7 @@
   <rosparam param="T_last_robot_link_to_EE">[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]</rosparam>
 
 
-  <node name="robot_state_publisher" pkg="robot_state_publisher" type="state_publisher" />
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
   <node pkg="abb_driver" name="abb_interface" type="abb_interface_node" output="screen"/>
   <node pkg="abb_driver" name="controller_bridge" type="controller_bridge_node" output="screen"/>
 
