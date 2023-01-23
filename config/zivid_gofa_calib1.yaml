@@ -1,7 +1,8 @@
 # This file contains the values obtained by the calibration package
 # Results are written in the form that they can be directly sent to a static_transform_publisher node
 # Recall its usage use static_transform_publisher x y z qx qy qz qw frame_id child_frame_id  period(milliseconds)
-translation: [-0.0662217, -0.819591, 1.05866]
-rotation: [0.710562, 0.699433, -0.0527178, 0.0558212]
+translation: [-0.0321179, -0.76181, 1.10095]
+rotation: [0.714809, 0.685616, -0.108513, 0.0848723]
+T: [0.036311, 0.998589, -0.038752, -0.032118, 0.961750, -0.045454, -0.270131, -0.761810, -0.271512, -0.027461, -0.962043, 1.100949, 0.000000, 0.000000, 0.000000, 1.000000]
 frame_id: zivid_optical_frame
 child_frame_id: setup1/base
