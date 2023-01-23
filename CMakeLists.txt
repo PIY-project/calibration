@@ -12,7 +12,10 @@ find_package(catkin REQUIRED
   cmake_modules
   std_msgs 
   geometry_msgs 
-  tf 
+  tf
+  rpwc_msgs
+  pcl_conversions
+  pcl_ros
 )
 
 ## System dependencies are found with CMake's conventions
@@ -102,6 +105,7 @@ include_directories(include
 #   ${EIGEN_DIR}
   ${catkin_INCLUDE_DIRS}
   include/eigen-3.3.7
+  include ../rpwc/include/rpwc
 )
 
 ## Declare a cpp library
@@ -113,11 +117,18 @@ add_library(calibration
 add_executable(simple_calibrator src/simple_calibrator.cpp)
 target_link_libraries(simple_calibrator ${catkin_LIBRARIES})
 
+add_executable(average_calibrator_test_pcd src/average_calibrator_test_pcd.cpp ../rpwc/src/rpwc_utils_pcl.cpp)
+target_link_libraries(average_calibrator_test_pcd ${catkin_LIBRARIES})
+
 add_executable(average_calibrator src/average_calibrator.cpp)
 target_link_libraries(average_calibrator ${catkin_LIBRARIES})
 
 add_executable(average_calibrator_old src/average_calibrator_old.cpp)
 target_link_libraries(average_calibrator_old ${catkin_LIBRARIES})
+
+add_executable(test_robotpcd_node src/test_robotpcd.cpp ../rpwc/src/rpwc_utils_pcl.cpp)
+add_dependencies(test_robotpcd_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(test_robotpcd_node ${catkin_LIBRARIES} )
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes

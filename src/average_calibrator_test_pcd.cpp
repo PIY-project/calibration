@@ -15,10 +15,11 @@
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/thread/thread.hpp>
 #include <Eigen/Eigenvalues> 
+#include <rpwc_utils_pcl.h>
 
 namespace calibration {
 
-class AverageCalibrator
+class AverageCalibratorTestPcd
 {
     private:
         // node handles
@@ -27,9 +28,14 @@ class AverageCalibrator
 
         // services
         ros::ServiceServer srv_calibrate_;
+        ros::ServiceServer srv_calibrate_pcd_;
         ros::ServiceServer srv_add_pose_;
         ros::ServiceServer srv_remove_pose_;
         ros::ServiceServer srv_clear_;
+
+        ros::Publisher pub_cloud_;
+        ros::Publisher pub_cloud_icp_;
+        ros::Subscriber sub_point_cloud_;
 
         // it is very useful to have a listener and broadcaster to know where all frames are
         tf::TransformListener tf_listener_;
@@ -44,6 +50,9 @@ class AverageCalibrator
         std::string calibrator_frame_;
         
         std::string calibration_name_;
+
+        sensor_msgs::PointCloud2 point_cloud_;
+        rpwc_utils_pcl rpwc_pcl_;
 
         double samples_; //how many samples to keep
   
@@ -62,15 +71,18 @@ class AverageCalibrator
         std::vector<tf::Transform> transform_vector_;
     public:
         bool calibrate(std_srvs::Empty::Request &request, std_srvs::Empty::Response &response);
+        bool calibrate_pcd(std_srvs::Empty::Request &request, std_srvs::Empty::Response &response);
         bool addPose(std_srvs::Empty::Request &request, std_srvs::Empty::Response &response);
         bool clearvec(std_srvs::Empty::Request &request, std_srvs::Empty::Response &response);
         bool removePose(std_srvs::Empty::Request &request, std_srvs::Empty::Response &response);
+
+        void callback_point_cloud (const sensor_msgs::PointCloud2ConstPtr& cloud_msg);
 
         void publishTf();
         bool recordTf(int i);
 
         // constructor
-        AverageCalibrator(ros::NodeHandle nh) : nh_(nh), priv_nh_("~")
+        AverageCalibratorTestPcd(ros::NodeHandle nh) : nh_(nh), priv_nh_("~")
         {
 
             // load the parameters
@@ -97,18 +109,23 @@ class AverageCalibrator
             transform_.setRotation( tf::Quaternion( published_rotation_.at(0), published_rotation_.at(1), published_rotation_.at(2), published_rotation_.at(3) ) );
 
             // advertise service
-            srv_add_pose_ = nh_.advertiseService(nh_.resolveName("add"), &AverageCalibrator::addPose, this);
-            srv_remove_pose_ = nh_.advertiseService(nh_.resolveName("remove"), &AverageCalibrator::removePose, this);
-            srv_calibrate_ = nh_.advertiseService(nh_.resolveName("calibrate"), &AverageCalibrator::calibrate, this);
-            srv_clear_ = nh_.advertiseService(nh_.resolveName("clear"), &AverageCalibrator::clearvec, this);
+            srv_add_pose_ = nh_.advertiseService(nh_.resolveName("add"), &AverageCalibratorTestPcd::addPose, this);
+            srv_remove_pose_ = nh_.advertiseService(nh_.resolveName("remove"), &AverageCalibratorTestPcd::removePose, this);
+            srv_calibrate_ = nh_.advertiseService(nh_.resolveName("calibrate"), &AverageCalibratorTestPcd::calibrate, this);
+            srv_calibrate_pcd_ = nh_.advertiseService(nh_.resolveName("calibrate_pcd"), &AverageCalibratorTestPcd::calibrate_pcd, this);
+            srv_clear_ = nh_.advertiseService(nh_.resolveName("clear"), &AverageCalibratorTestPcd::clearvec, this);
+
+            pub_cloud_ = nh.advertise<sensor_msgs::PointCloud2>("/robot_pcd", 1);
+            pub_cloud_icp_ = nh.advertise<sensor_msgs::PointCloud2>("/icp_result", 1);
+            sub_point_cloud_ = nh.subscribe("/camera/depth_registered/points", 1, &AverageCalibratorTestPcd::callback_point_cloud, this);
 
         }
 
         //! Empty stub
-        ~AverageCalibrator() {}
+        ~AverageCalibratorTestPcd() {}
 
 };
-bool AverageCalibrator::recordTf(int i)
+bool AverageCalibratorTestPcd::recordTf(int i)
 {
     // 1. get the first transformation
     tf::StampedTransform first_transformation;
@@ -165,7 +182,7 @@ bool AverageCalibrator::recordTf(int i)
     
 }
 
-bool AverageCalibrator::calibrate( std_srvs::Empty::Request &request, std_srvs::Empty::Response &response )
+bool AverageCalibratorTestPcd::calibrate( std_srvs::Empty::Request &request, std_srvs::Empty::Response &response )
 {
     double n = transform_vector_.size();
     if(n<1) {
@@ -244,7 +261,115 @@ bool AverageCalibrator::calibrate( std_srvs::Empty::Request &request, std_srvs::
     }
     return true;
 }
-bool AverageCalibrator::addPose( std_srvs::Empty::Request &request, std_srvs::Empty::Response &response )
+
+bool AverageCalibratorTestPcd::calibrate_pcd( std_srvs::Empty::Request &request, std_srvs::Empty::Response &response )
+{
+  tf::StampedTransform transformation_cam2robotLink;
+  try
+  {
+    tf_listener_.lookupTransform(frame_id_, "/setup1/L5",ros::Time(0), transformation_cam2robotLink);
+
+    Eigen::Matrix4d T_cam2robotLink(Eigen::Matrix4d::Identity());
+    T_cam2robotLink.block<3,1>(0,3) << transformation_cam2robotLink.getOrigin()[0], transformation_cam2robotLink.getOrigin()[1], transformation_cam2robotLink.getOrigin()[2];
+    T_cam2robotLink.block<3,3>(0,0) = Eigen::Matrix3d(Eigen::Quaterniond(transformation_cam2robotLink.getRotation().getW(), transformation_cam2robotLink.getRotation().getX(), transformation_cam2robotLink.getRotation().getY(), transformation_cam2robotLink.getRotation().getZ()));
+    
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr target_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+    if (pcl::io::loadPCDFile<pcl::PointXYZRGB>("/home/nuk1/star_ws/src/abb_wrapper/gofa_description/meshes/L5.pcd", *target_cloud) == -1)
+    {
+        PCL_ERROR ("Couldn't read file .pcd \n");
+        return false;
+    }
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr target_cloud_result(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::transformPointCloud(*target_cloud, *target_cloud_result, T_cam2robotLink);
+    // declare the output variable instances
+    pcl::PCLPointCloud2 outputPCL;
+    sensor_msgs::PointCloud2 output;
+
+    // convert to pcl::PCLPointCloud2
+    pcl::toPCLPointCloud2( *target_cloud_result ,outputPCL);
+
+    // Convert to ROS data type
+    pcl_conversions::fromPCL(outputPCL, output);
+    output.header.frame_id = frame_id_;
+    pub_cloud_.publish(output);
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pclCloudPtr (new pcl::PointCloud<pcl::PointXYZRGB>);
+    //rpwc_pcl_.cloud2_to_pcl(point_cloud_ , pclCloudPtr);
+    rpwc_pcl_.pcl_prefilter(point_cloud_, pclCloudPtr, 0.01, -0.80, 0.80, -0.80, 0.80, -0.80, 0.80);
+    std::string path = ros::package::getPath("calibration") + "/pcd_test/test_pcd.pcd";
+    pcl::io::savePCDFileASCII (path, *pclCloudPtr);
+
+    // Estimate normals for object
+    pcl::PointCloud<pcl::PointNormal>::Ptr target_cloud_result_normal (new pcl::PointCloud<pcl::PointNormal>);
+    pcl::PointCloud<pcl::PointNormal>::Ptr pclCloudPtr_normal (new pcl::PointCloud<pcl::PointNormal>);
+
+    pcl::copyPointCloud(*target_cloud_result,*target_cloud_result_normal);
+    pcl::copyPointCloud(*pclCloudPtr,*pclCloudPtr_normal);
+
+
+		pcl::console::print_highlight ("Estimating object normals...\n");
+		pcl::NormalEstimationOMP<pcl::PointNormal,pcl::PointNormal> nest_obj;
+		nest_obj.setRadiusSearch (0.01);
+		//nest_obj.setRadiusSearch (0.005);
+		nest_obj.setInputCloud (target_cloud_result_normal);
+		nest_obj.compute (*target_cloud_result_normal);
+
+		// Estimate normals for scene
+		pcl::console::print_highlight ("Estimating scene normals...\n");
+		pcl::NormalEstimationOMP<pcl::PointNormal,pcl::PointNormal> nest;
+		// nest.setRadiusSearch (0.01);
+		nest.setRadiusSearch (0.005);
+		nest.setInputCloud (pclCloudPtr_normal);
+		nest.compute (*pclCloudPtr_normal);
+
+    pcl::IterativeClosestPoint<pcl::PointNormal, pcl::PointNormal> icp;
+    icp.setMaximumIterations (5000);
+    icp.setInputSource (pclCloudPtr_normal);
+    icp.setInputTarget (target_cloud_result_normal);
+    pcl::PointCloud<pcl::PointNormal>::Ptr object_aligned_final (new pcl::PointCloud<pcl::PointNormal>);
+    icp.align (*object_aligned_final);
+    if (icp.hasConverged ())
+    {
+      std::cout << "\nICP has converged, score is " << icp.getFitnessScore () << std::endl;
+      Eigen::Matrix4f transformation_2 = icp.getFinalTransformation ();
+      pcl::console::print_info ("    | %6.3f %6.3f %6.3f | \n", transformation_2 (0,0), transformation_2 (0,1), transformation_2 (0,2));
+      pcl::console::print_info ("R = | %6.3f %6.3f %6.3f | \n", transformation_2 (1,0), transformation_2 (1,1), transformation_2 (1,2));
+      pcl::console::print_info ("    | %6.3f %6.3f %6.3f | \n", transformation_2 (2,0), transformation_2 (2,1), transformation_2 (2,2));
+      pcl::console::print_info ("\n");
+      pcl::console::print_info ("t = < %0.3f, %0.3f, %0.3f >\n", transformation_2 (0,3), transformation_2 (1,3), transformation_2 (2,3));
+      pcl::console::print_info ("\n");
+
+      pcl::PCLPointCloud2 outputPCL_icp;
+      sensor_msgs::PointCloud2 output_icp;
+
+      // convert to pcl::PCLPointCloud2
+      pcl::toPCLPointCloud2( *object_aligned_final ,outputPCL_icp);
+
+      // Convert to ROS data type
+      pcl_conversions::fromPCL(outputPCL_icp, output_icp);
+      output_icp.header.frame_id = frame_id_;
+      pub_cloud_icp_.publish(output_icp);
+    }
+    else
+    {
+      PCL_ERROR ("\nICP has not converged.\n");
+      return (-1);
+    }
+
+
+  }
+  catch (tf::TransformException ex)
+  {
+    ROS_ERROR("%s",ex.what());
+    ros::Duration(1.0).sleep();
+    return false;
+  }
+
+  return true;
+}
+
+bool AverageCalibratorTestPcd::addPose( std_srvs::Empty::Request &request, std_srvs::Empty::Response &response )
 {
 	ros::Rate rate(10.0); //go at 100Hz
     int num_t = 0;
@@ -356,18 +481,22 @@ bool AverageCalibrator::addPose( std_srvs::Empty::Request &request, std_srvs::Em
     return true;
 }
 
-bool AverageCalibrator::removePose(std_srvs::Empty::Request &request, std_srvs::Empty::Response &response) {
+bool AverageCalibratorTestPcd::removePose(std_srvs::Empty::Request &request, std_srvs::Empty::Response &response) {
 	transform_vector_.pop_back();
 	return true;
 }
 
-bool AverageCalibrator::clearvec(std_srvs::Empty::Request &request, std_srvs::Empty::Response &response) {
+bool AverageCalibratorTestPcd::clearvec(std_srvs::Empty::Request &request, std_srvs::Empty::Response &response) {
 	transform_vector_.clear();
 return true;
 }
 
+void AverageCalibratorTestPcd::callback_point_cloud (const sensor_msgs::PointCloud2ConstPtr& cloud_msg)
+{
+	point_cloud_ = *cloud_msg;
+}
 // this function is called as fast as ROS can from the main loop directly
-void AverageCalibrator::publishTf()
+void AverageCalibratorTestPcd::publishTf()
 {
     tf_broadcaster_.sendTransform(tf::StampedTransform(transform_, ros::Time::now(), frame_id_, child_frame_id_)); //from asus to phase space
 }
@@ -379,7 +508,7 @@ int main(int argc, char **argv)
     ros::init(argc, argv, "simple_calibrator_node");
     ros::NodeHandle nh;
 
-    calibration::AverageCalibrator node(nh);
+    calibration::AverageCalibratorTestPcd node(nh);
     ros::Rate rate(10.0); //go at 100Hz
   
     //wait a bit to let tf start publishing
